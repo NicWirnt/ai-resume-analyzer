@@ -13,23 +13,13 @@ async function loadPdfJs(): Promise<any> {
     if (loadPromise) return loadPromise;
 
     isLoading = true;
-    loadPromise = import("pdfjs-dist").then((lib) => {
-        // In some environments, we might need to access .default
-        const pdfjs = lib.default || lib;
+    // @ts-expect-error - pdfjs-dist/build/pdf.mjs is not a module
+    loadPromise = import("pdfjs-dist/build/pdf.mjs").then((lib) => {
         // Set the worker source to use local file
-        const workerPath = "/pdf.worker.min.mjs";
-        pdfjs.GlobalWorkerOptions.workerSrc = typeof window !== 'undefined' 
-            ? window.location.origin + workerPath 
-            : workerPath;
-
-        pdfjsLib = pdfjs;
+        lib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+        pdfjsLib = lib;
         isLoading = false;
-        return pdfjs;
-    }).catch(err => {
-        isLoading = false;
-        loadPromise = null;
-        console.error("Failed to load PDF.js", err);
-        throw err;
+        return lib;
     });
 
     return loadPromise;
@@ -42,47 +32,22 @@ export async function convertPdfToImage(
         const lib = await loadPdfJs();
 
         const arrayBuffer = await file.arrayBuffer();
-        
-        const loadingTask = lib.getDocument({ data: arrayBuffer });
-        const pdf = await loadingTask.promise;
-        const numPages = pdf.numPages;
-        
-        const pages = [];
-        let totalHeight = 0;
-        let maxWidth = 0;
+        const pdf = await lib.getDocument({ data: arrayBuffer }).promise;
+        const page = await pdf.getPage(1);
 
-        // Load all pages and calculate total dimensions
-        for (let i = 1; i <= numPages; i++) {
-            const page = await pdf.getPage(i);
-            const viewport = page.getViewport({ scale: 2 });
-            pages.push({ page, viewport });
-            totalHeight += viewport.height;
-            maxWidth = Math.max(maxWidth, viewport.width);
-        }
-
+        const viewport = page.getViewport({ scale: 4 });
         const canvas = document.createElement("canvas");
         const context = canvas.getContext("2d");
 
-        canvas.width = maxWidth;
-        canvas.height = totalHeight;
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
 
         if (context) {
             context.imageSmoothingEnabled = true;
             context.imageSmoothingQuality = "high";
-            // Set white background
-            context.fillStyle = "white";
-            context.fillRect(0, 0, canvas.width, canvas.height);
         }
 
-        let currentY = 0;
-        for (const { page, viewport } of pages) {
-            await page.render({ 
-                canvasContext: context!, 
-                viewport,
-                transform: [1, 0, 0, 1, 0, currentY] // Offset the page vertically
-            }).promise;
-            currentY += viewport.height;
-        }
+        await page.render({ canvasContext: context!, viewport }).promise;
 
         return new Promise((resolve) => {
             canvas.toBlob(
