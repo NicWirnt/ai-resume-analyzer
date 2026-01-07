@@ -102,7 +102,7 @@ const CategoryContent = ({ tips }: CategoryContentProps) => {
                 tip.type === "good" ? "text-green-800" : "text-red-800"
               )}
             >
-              {tip.tip}
+              {tip?.tip}
             </h4>
             <p
               className={cn(
